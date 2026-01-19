@@ -119,34 +119,68 @@ $env:PROJECT_ID = "your-project-id"  # Replace with YOUR actual project ID
 gcloud iam service-accounts create github-actions-sa --display-name="GitHub Actions Service Account" --project=$env:PROJECT_ID
 ```
 
-### Step 5: Run Initial Setup Script
+### Step 5: Create Service Account and Workload Identity Federation
 
-**This step creates the service account and Workload Identity Federation.**
+**⚠️ Run these commands ONCE before running Terraform**
 
-```powershell
-# Edit the setup script first with your details
-notepad setup-initial.ps1
+```bash
+# Set your variables (replace with YOUR values)
+export PROJECT_ID="your-project-id"  # e.g., project-cde9aa72-04d5-4bd3-af5
+export GITHUB_USERNAME="your-github-username"  # e.g., b95702041
+export GITHUB_REPO="gcp-devops-demo"
 
-# Update these variables:
-# $PROJECT_ID = "your-project-id"
-# $GITHUB_USERNAME = "your-github-username"
-# $GITHUB_REPO = "gcp-devops-demo"
+# Get project number
+export PROJECT_NUMBER=$(gcloud projects list --filter="PROJECT_ID:$PROJECT_ID" --format="value(PROJECT_NUMBER)")
 
-# Run the setup script
-.\setup-initial.ps1
+# Enable required APIs
+gcloud services enable iamcredentials.googleapis.com --project=$PROJECT_ID
+gcloud services enable sts.googleapis.com --project=$PROJECT_ID
+gcloud services enable cloudbuild.googleapis.com --project=$PROJECT_ID
+gcloud services enable run.googleapis.com --project=$PROJECT_ID
+gcloud services enable artifactregistry.googleapis.com --project=$PROJECT_ID
+
+# Create service account
+gcloud iam service-accounts create github-actions-sa \
+  --display-name="GitHub Actions Service Account" \
+  --project=$PROJECT_ID
+
+# Create Workload Identity Pool
+gcloud iam workload-identity-pools create github-pool \
+  --project=$PROJECT_ID \
+  --location="global" \
+  --display-name="GitHub Actions Pool"
+
+# Create Workload Identity Provider
+gcloud iam workload-identity-pools providers create-oidc github-provider \
+  --project=$PROJECT_ID \
+  --location="global" \
+  --workload-identity-pool=github-pool \
+  --display-name="GitHub Provider" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner" \
+  --attribute-condition="assertion.repository_owner=='$GITHUB_USERNAME'" \
+  --issuer-uri="https://token.actions.githubusercontent.com"
+
+# Grant Workload Identity User role
+gcloud iam service-accounts add-iam-policy-binding github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com \
+  --project=$PROJECT_ID \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/attribute.repository/$GITHUB_USERNAME/$GITHUB_REPO"
+
+# Display WIF provider string (save this for GitHub secrets!)
+echo "WIF_PROVIDER value for GitHub secrets:"
+echo "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
 ```
 
-This script will:
-- ✅ Create `github-actions-sa` service account
-- ✅ Create Workload Identity Federation pool and provider
-- ✅ Grant WIF access
-- ✅ Display the values for GitHub secrets
-
-**Note:** IAM permissions are NOT granted yet - Terraform will handle that in Step 7!
+**Windows PowerShell users:** Replace `export` with `$env:` 
+```powershell
+$env:PROJECT_ID = "your-project-id"
+$env:GITHUB_USERNAME = "your-github-username"
+# ... etc
+```
 
 ### Step 6: Add GitHub Secrets
 
-The setup script from Step 5 displayed these values. Add them to GitHub:
+The last command from Step 5 displayed the WIF provider string. Add these secrets to GitHub:
 
 Go to: https://github.com/YOUR-USERNAME/gcp-devops-demo/settings/secrets/actions
 
@@ -154,7 +188,7 @@ Click "New repository secret" for each:
 
 **Secret 1:**
 - Name: `GCP_PROJECT_ID`
-- Value: `your-project-id`
+- Value: `your-project-id` (e.g., `project-cde9aa72-04d5-4bd3-af5`)
 
 **Secret 2:**
 - Name: `WIF_PROVIDER`
