@@ -1,0 +1,21 @@
+# Example Terraform variables file
+# Copy this file to terraform.tfvars and fill in your actual values
+# 
+# Steps:
+# 1. Copy this file: cp terraform.tfvars.example terraform.tfvars
+# 2. Edit terraform.tfvars with your actual GCP project ID
+# 3. Run: terraform init && terraform plan
+#
+# Note: terraform.tfvars is in .gitignore to prevent committing sensitive data
+
+# Replace with your actual GCP project ID
+# Find your project ID: gcloud projects list
+project_id = "your-gcp-project-id"
+
+# The region where resources will be deployed (default: asia-east1)
+# You can change this to any valid GCP region
+region = "asia-east1"
+
+# The name of the application (default: gcp-devops-demo)
+# This will be used to name Cloud Run service and other resources
+app_name = "gcp-devops-demo"

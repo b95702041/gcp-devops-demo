@@ -1,0 +1,91 @@
+# GitHub Actions workflow for CI/CD pipeline
+# This workflow automatically builds and deploys the application when code is pushed to main
+
+name: Deploy to Google Cloud Run
+
+# Trigger the workflow when code is pushed to the main branch
+on:
+  push:
+    branches:
+      - main
+
+# Environment variables used throughout the workflow
+env:
+  GCP_REGION: asia-east1
+  APP_NAME: gcp-devops-demo
+
+jobs:
+  deploy:
+    name: Build and Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    
+    # Required permissions for the GitHub token
+    permissions:
+      contents: read
+      id-token: write  # Needed for OIDC authentication (recommended over service account keys)
+    
+    steps:
+      # Step 1: Checkout the code from the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # Step 2: Authenticate to Google Cloud
+      # This uses a service account key stored in GitHub Secrets
+      # For production, consider using Workload Identity Federation instead
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      # Step 3: Setup Google Cloud SDK
+      # This installs the gcloud CLI tool
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      
+      # Step 4: Configure Docker to use gcloud as a credential helper
+      # This allows Docker to push images to Artifact Registry
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+      
+      # Step 5: Submit build to Cloud Build
+      # Cloud Build will execute the cloudbuild.yaml instructions
+      # This includes building the Docker image, pushing it, and deploying to Cloud Run
+      - name: Submit to Cloud Build
+        run: |
+          gcloud builds submit \
+            --config=cloudbuild.yaml \
+            --substitutions=_REGION=${{ env.GCP_REGION }},_APP_NAME=${{ env.APP_NAME }},SHORT_SHA=$(git rev-parse --short HEAD) \
+            --project=${{ secrets.GCP_PROJECT_ID }}
+      
+      # Step 6: Get the Cloud Run service URL
+      # Display the URL so it's visible in the GitHub Actions log
+      - name: Get Service URL
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ env.APP_NAME }} \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ secrets.GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          echo "Service deployed to: $SERVICE_URL"
+          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_OUTPUT
+        id: get-url
+      
+      # Step 7: Test the deployed service
+      # Make a simple health check to verify the deployment worked
+      - name: Test deployment
+        run: |
+          sleep 10  # Wait for Cloud Run to stabilize
+          SERVICE_URL=$(gcloud run services describe ${{ env.APP_NAME }} \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ secrets.GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          
+          echo "Testing health endpoint..."
+          curl -f "$SERVICE_URL/health" || exit 1
+          
+          echo "Testing info endpoint..."
+          curl -f "$SERVICE_URL/info" || exit 1
+          
+          echo "✅ Deployment successful and verified!"
