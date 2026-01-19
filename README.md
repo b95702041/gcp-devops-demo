@@ -1,643 +1,390 @@
-# GCP DevOps Demo Project
+# GCP DevOps Demo - Complete Setup Guide (Updated with Correct Permissions)
 
-A complete learning project demonstrating modern DevOps practices on Google Cloud Platform (GCP), including CI/CD pipelines, containerization, and Infrastructure as Code.
+A complete hands-on learning project for Google Cloud Platform DevOps, featuring CI/CD pipelines, Docker containerization, Infrastructure as Code with Terraform, and serverless deployment on Cloud Run.
+
+**⚠️ IMPORTANT: This guide includes ALL required permissions discovered through testing.**
+
+---
 
 ## 📋 Table of Contents
 
-- [Project Overview](#project-overview)
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Project Structure](#project-structure)
-- [Setup Instructions](#setup-instructions)
-- [Local Development](#local-development)
-- [Deployment Process](#deployment-process)
-- [Verification](#verification)
-- [Cleanup](#cleanup)
-- [Troubleshooting](#troubleshooting)
-- [Learning Resources](#learning-resources)
+1. [Project Overview](#project-overview)
+2. [Prerequisites](#prerequisites)
+3. [Complete Setup Guide](#complete-setup-guide)
+4. [Troubleshooting](#troubleshooting)
+5. [Cleanup](#cleanup)
+
+---
 
 ## 🎯 Project Overview
 
-This project demonstrates a complete DevOps workflow for deploying a Python Flask application to Google Cloud Run using:
+This project demonstrates a complete modern DevOps workflow by deploying a Python Flask API to Google Cloud Run with automated CI/CD using **Workload Identity Federation** (no service account keys needed!).
 
-- **Application**: Simple Flask REST API with health check endpoints
+### Key Technologies
+
+- **Application**: Python Flask REST API
 - **Containerization**: Docker with multi-stage builds
-- **Infrastructure as Code**: Terraform for GCP resource management
+- **Infrastructure as Code**: Terraform
 - **CI/CD**: GitHub Actions + Google Cloud Build
+- **Authentication**: Workload Identity Federation (keyless!)
 - **Container Registry**: Google Artifact Registry
-- **Compute**: Google Cloud Run (serverless containers)
+- **Compute**: Google Cloud Run (serverless)
 - **Region**: asia-east1 (Taiwan)
 
-### Key Features
+### What Gets Deployed
 
-- ✅ Automated CI/CD pipeline
-- ✅ Infrastructure as Code (reproducible deployments)
-- ✅ Containerized application
-- ✅ Serverless architecture (scales to zero)
-- ✅ Security best practices (non-root containers, least privilege)
-- ✅ Cost-effective (pay only for actual usage)
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         GitHub Repository                        │
-│                                                                   │
-│  ┌──────────┐  ┌────────────┐  ┌──────────┐  ┌──────────────┐ │
-│  │  Flask   │  │ Dockerfile │  │ Terraform│  │  CloudBuild  │ │
-│  │   App    │  │            │  │   IaC    │  │    Config    │ │
-│  └──────────┘  └────────────┘  └──────────┘  └──────────────┘ │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         │ Push to main branch
-                         ▼
-              ┌──────────────────────┐
-              │   GitHub Actions     │
-              │  (CI/CD Trigger)     │
-              └──────────┬───────────┘
-                         │
-                         │ Authenticate & Submit Build
-                         ▼
-              ┌──────────────────────┐
-              │   Cloud Build        │
-              │  1. Build Docker     │
-              │  2. Push to Registry │
-              │  3. Deploy to Run    │
-              └──────────┬───────────┘
-                         │
-          ┌──────────────┼──────────────┐
-          │              │               │
-          ▼              ▼               ▼
-  ┌──────────────┐ ┌─────────┐  ┌──────────────┐
-  │  Artifact    │ │  Cloud  │  │   Cloud Run  │
-  │  Registry    │ │  Build  │  │   Service    │
-  │  (Images)    │ │  (Logs) │  │ (Production) │
-  └──────────────┘ └─────────┘  └──────────────┘
-                                        │
-                                        │ HTTPS
-                                        ▼
-                                 ┌──────────────┐
-                                 │    Public    │
-                                 │     API      │
-                                 └──────────────┘
-```
-
-### API Endpoints
-
+A simple Flask API with three endpoints:
 - `GET /` - Welcome message with timestamp
 - `GET /health` - Health check endpoint
 - `GET /info` - Application metadata
 
+---
+
 ## 📦 Prerequisites
 
-Before starting, ensure you have the following:
+### Required Accounts
 
-### 1. GCP Account
+1. **Google Cloud Platform Account**
+   - Sign up: https://cloud.google.com/
+   - Free tier includes $300 credit for new users
+   - **Billing must be enabled**
 
-- Create a GCP account: https://cloud.google.com/
-- You'll need billing enabled (free tier includes $300 credit for new users)
+2. **GitHub Account**
+   - Sign up: https://github.com/join
 
-### 2. Required Tools
+### Required Tools
 
-Install these tools on your local machine:
+#### Windows Users:
+- **Google Cloud SDK**: https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe
+- **Git for Windows**: https://git-scm.com/download/win
+- **Terraform**: https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_windows_amd64.zip
 
+#### Mac/Linux Users:
 ```bash
-# Google Cloud SDK (gcloud CLI)
-# Install: https://cloud.google.com/sdk/docs/install
+# Google Cloud SDK
+curl https://sdk.cloud.google.com | bash
 
 # Terraform
-# Install: https://developer.hashicorp.com/terraform/downloads
-
-# Docker (optional, for local testing)
-# Install: https://docs.docker.com/get-docker/
+brew install terraform  # macOS
+# or download from: https://www.terraform.io/downloads
 
 # Git
-# Install: https://git-scm.com/downloads
-
-# GitHub account
-# Create: https://github.com/join
+brew install git  # macOS
+sudo apt-get install git  # Linux
 ```
-
-### 3. Verify Installations
-
-```bash
-gcloud --version
-terraform --version
-docker --version
-git --version
-```
-
-## 📁 Project Structure
-
-```
-gcp-devops-demo/
-├── app/                          # Application code
-│   ├── main.py                   # Flask application
-│   ├── requirements.txt          # Python dependencies
-│   └── Dockerfile                # Container configuration
-├── terraform/                    # Infrastructure as Code
-│   ├── main.tf                   # Main Terraform configuration
-│   ├── variables.tf              # Variable definitions
-│   ├── outputs.tf                # Output values
-│   └── terraform.tfvars.example  # Example variables file
-├── .github/
-│   └── workflows/
-│       └── deploy.yaml           # GitHub Actions CI/CD pipeline
-├── cloudbuild.yaml               # Cloud Build configuration
-├── .gitignore                    # Git ignore rules
-└── README.md                     # This file
-```
-
-## 🚀 Setup Instructions
-
-Follow these steps carefully to set up the project:
-
-### Step 1: Create and Configure GCP Project
-
-```bash
-# 1. Create a new GCP project (or use existing)
-gcloud projects create YOUR-PROJECT-ID --name="GCP DevOps Demo"
-
-# 2. Set the project as default
-gcloud config set project YOUR-PROJECT-ID
-
-# 3. Enable billing for the project
-# Go to: https://console.cloud.google.com/billing
-# Link your project to a billing account
-
-# 4. Verify your project is set correctly
-gcloud config get-value project
-```
-
-### Step 2: Install and Authenticate gcloud CLI
-
-```bash
-# Initialize gcloud
-gcloud init
-
-# Authenticate your account
-gcloud auth login
-
-# Set application default credentials (for Terraform)
-gcloud auth application-default login
-```
-
-### Step 3: Create Service Account for CI/CD
-
-The service account needs permissions to manage Cloud Build, Cloud Run, and Artifact Registry:
-
-```bash
-# Set your project ID
-export PROJECT_ID="YOUR-PROJECT-ID"
-
-# Create service account
-gcloud iam service-accounts create github-actions-sa \
-    --display-name="GitHub Actions Service Account" \
-    --project=$PROJECT_ID
-
-# Grant required roles to the service account
-# Cloud Build Editor - Manage Cloud Build jobs
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role="roles/cloudbuild.builds.editor"
-
-# Cloud Run Admin - Deploy and manage Cloud Run services
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role="roles/run.admin"
-
-# Artifact Registry Administrator - Push Docker images
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role="roles/artifactregistry.admin"
-
-# Service Account User - Act as service accounts
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role="roles/iam.serviceAccountUser"
-
-# Storage Admin - Access Cloud Build artifacts
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role="roles/storage.admin"
-
-# Download service account key (JSON file)
-gcloud iam service-accounts keys create github-actions-key.json \
-    --iam-account=github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com
-
-# ⚠️ IMPORTANT: Keep this file secure! It provides full access to your GCP project
-echo "Service account key saved to: github-actions-key.json"
-```
-
-### Step 4: Create GitHub Repository and Add Secrets
-
-```bash
-# 1. Create a new repository on GitHub
-# Go to: https://github.com/new
-# Name it: gcp-devops-demo
-
-# 2. Add GitHub Secrets (required for CI/CD)
-# Go to: https://github.com/YOUR-USERNAME/gcp-devops-demo/settings/secrets/actions
-# Click "New repository secret" and add:
-
-# Secret 1: GCP_PROJECT_ID
-#   Value: YOUR-PROJECT-ID
-
-# Secret 2: GCP_SA_KEY
-#   Value: (entire contents of github-actions-key.json file)
-#   Copy the full JSON content including { } braces
-```
-
-### Step 5: Initialize Local Repository
-
-```bash
-# Clone this repository or create a new one
-git clone https://github.com/YOUR-USERNAME/gcp-devops-demo.git
-cd gcp-devops-demo
-
-# Or if starting fresh:
-git init
-git remote add origin https://github.com/YOUR-USERNAME/gcp-devops-demo.git
-```
-
-### Step 6: Configure Terraform
-
-```bash
-# Navigate to terraform directory
-cd terraform
-
-# Copy example variables file
-cp terraform.tfvars.example terraform.tfvars
-
-# Edit terraform.tfvars with your project ID
-# Replace "your-gcp-project-id" with your actual project ID
-nano terraform.tfvars  # or use your preferred editor
-
-# The file should look like:
-# project_id = "YOUR-PROJECT-ID"
-# region = "asia-east1"
-# app_name = "gcp-devops-demo"
-```
-
-### Step 7: Deploy Infrastructure with Terraform
-
-```bash
-# Still in terraform/ directory
-
-# Initialize Terraform (downloads providers)
-terraform init
-
-# Preview changes (what will be created)
-terraform plan
-
-# Create the infrastructure
-terraform apply
-
-# Review the planned changes and type "yes" to confirm
-
-# Save the outputs for later use
-terraform output
-```
-
-Expected output:
-```
-cloud_run_url = "https://gcp-devops-demo-xxxxx-uc.a.run.app"
-artifact_registry_repository = "projects/YOUR-PROJECT/locations/asia-east1/repositories/gcp-devops-demo-repo"
-```
-
-### Step 8: Push Code to GitHub (Triggers First Deployment)
-
-```bash
-# Return to project root
-cd ..
-
-# Stage all files
-git add .
-
-# Commit changes
-git commit -m "Initial commit: Complete GCP DevOps setup"
-
-# Push to GitHub (this triggers the CI/CD pipeline!)
-git push -u origin main
-```
-
-### Step 9: Monitor Deployment
-
-```bash
-# Watch GitHub Actions workflow
-# Go to: https://github.com/YOUR-USERNAME/gcp-devops-demo/actions
-
-# Monitor Cloud Build logs (alternative)
-gcloud builds list --limit=5
-
-# Get build details
-gcloud builds log BUILD_ID --stream
-```
-
-## 💻 Local Development
-
-### Run Flask App Locally
-
-```bash
-# Navigate to app directory
-cd app
-
-# Create virtual environment
-python3 -m venv venv
-
-# Activate virtual environment
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the application
-export PORT=8080
-export VERSION=1.0.0
-export ENVIRONMENT=development
-python main.py
-
-# Test endpoints
-curl http://localhost:8080/
-curl http://localhost:8080/health
-curl http://localhost:8080/info
-```
-
-### Build and Run Docker Container Locally
-
-```bash
-# Build the Docker image
-cd app
-docker build -t gcp-devops-demo:local .
-
-# Run the container
-docker run -p 8080:8080 \
-  -e VERSION=1.0.0 \
-  -e ENVIRONMENT=local \
-  gcp-devops-demo:local
-
-# Test the containerized app
-curl http://localhost:8080/health
-```
-
-### Test Changes Before Deploying
-
-```bash
-# 1. Make changes to app/main.py
-# 2. Test locally (see above)
-# 3. Commit and push to trigger deployment
-git add .
-git commit -m "Update: description of changes"
-git push origin main
-```
-
-## 🔄 Deployment Process
-
-The automated deployment follows these steps:
-
-1. **Trigger**: Code pushed to `main` branch
-2. **GitHub Actions**: 
-   - Authenticates to GCP
-   - Submits build to Cloud Build
-3. **Cloud Build**:
-   - Builds Docker image
-   - Pushes to Artifact Registry
-   - Deploys to Cloud Run
-4. **Cloud Run**: 
-   - Pulls new image
-   - Creates new revision
-   - Routes traffic to new revision
-
-### Manual Deployment (Alternative)
-
-If you want to deploy manually without GitHub Actions:
-
-```bash
-# Submit build directly to Cloud Build
-gcloud builds submit \
-  --config=cloudbuild.yaml \
-  --substitutions=_REGION=asia-east1,_APP_NAME=gcp-devops-demo,SHORT_SHA=$(git rev-parse --short HEAD)
-```
-
-## ✅ Verification
-
-### Test the Deployed Application
-
-```bash
-# Get your Cloud Run URL
-SERVICE_URL=$(gcloud run services describe gcp-devops-demo \
-  --region=asia-east1 \
-  --format='value(status.url)')
-
-echo "Service URL: $SERVICE_URL"
-
-# Test health endpoint
-curl $SERVICE_URL/health
-
-# Test info endpoint
-curl $SERVICE_URL/info
-
-# Test welcome endpoint
-curl $SERVICE_URL/
-```
-
-### View Logs
-
-```bash
-# View Cloud Run logs
-gcloud run services logs read gcp-devops-demo \
-  --region=asia-east1 \
-  --limit=50
-
-# Stream live logs
-gcloud run services logs tail gcp-devops-demo \
-  --region=asia-east1
-```
-
-### Check Cloud Build History
-
-```bash
-# List recent builds
-gcloud builds list --limit=10
-
-# View specific build
-gcloud builds describe BUILD_ID
-```
-
-## 🧹 Cleanup
-
-To avoid ongoing charges, destroy all resources when done:
-
-```bash
-# Option 1: Destroy infrastructure with Terraform (Recommended)
-cd terraform
-terraform destroy
-# Type "yes" to confirm
-
-# Option 2: Delete individual resources manually
-gcloud run services delete gcp-devops-demo --region=asia-east1
-gcloud artifacts repositories delete gcp-devops-demo-repo --location=asia-east1
-
-# Delete service account
-gcloud iam service-accounts delete github-actions-sa@YOUR-PROJECT-ID.iam.gserviceaccount.com
-
-# Delete the entire project (nuclear option)
-gcloud projects delete YOUR-PROJECT-ID
-```
-
-## 🔧 Troubleshooting
-
-### Common Issues and Solutions
-
-#### 1. "APIs not enabled" Error
-
-**Problem**: Build fails with "API not enabled" error
-
-**Solution**:
-```bash
-# Manually enable required APIs
-gcloud services enable cloudbuild.googleapis.com
-gcloud services enable run.googleapis.com
-gcloud services enable artifactregistry.googleapis.com
-```
-
-#### 2. Permission Denied Errors
-
-**Problem**: Service account doesn't have sufficient permissions
-
-**Solution**:
-```bash
-# Re-run the service account permission commands from Step 3
-# Make sure all roles are granted
-```
-
-#### 3. GitHub Actions Fails to Authenticate
-
-**Problem**: "Invalid service account key" error
-
-**Solution**:
-- Verify `GCP_SA_KEY` secret contains the complete JSON file content
-- Ensure no extra spaces or newlines were added when copying
-- Recreate the service account key if needed
-
-#### 4. Terraform Apply Fails
-
-**Problem**: Terraform can't create resources
-
-**Solution**:
-```bash
-# Ensure you're authenticated
-gcloud auth application-default login
-
-# Verify project is set
-gcloud config get-value project
-
-# Check if APIs are enabled
-gcloud services list --enabled
-```
-
-#### 5. Cloud Run Service Returns 404
-
-**Problem**: Service deployed but endpoints return 404
-
-**Solution**:
-```bash
-# Check if the correct image is deployed
-gcloud run services describe gcp-devops-demo --region=asia-east1
-
-# View logs for errors
-gcloud run services logs read gcp-devops-demo --region=asia-east1
-
-# Check container health
-gcloud run revisions describe REVISION_NAME --region=asia-east1
-```
-
-#### 6. Docker Build Fails Locally
-
-**Problem**: Can't build Docker image on local machine
-
-**Solution**:
-```bash
-# Ensure Docker daemon is running
-docker ps
-
-# Build with verbose output
-docker build --progress=plain -t gcp-devops-demo:local ./app
-```
-
-#### 7. High Cloud Run Costs
-
-**Problem**: Unexpected charges
-
-**Solution**:
-- Verify min-instances is set to 0 (scale to zero)
-- Check for memory/CPU over-allocation
-- Review request timeout settings
-- Monitor in Cloud Console: https://console.cloud.google.com/run
-
-### Getting Help
-
-If you encounter issues not covered here:
-
-1. **Check Cloud Build Logs**: 
-   ```bash
-   gcloud builds list
-   gcloud builds log BUILD_ID
-   ```
-
-2. **Review Cloud Run Logs**:
-   ```bash
-   gcloud run services logs read gcp-devops-demo --region=asia-east1
-   ```
-
-3. **Consult GCP Documentation**:
-   - Cloud Run: https://cloud.google.com/run/docs
-   - Cloud Build: https://cloud.google.com/build/docs
-   - Terraform Google Provider: https://registry.terraform.io/providers/hashicorp/google/latest/docs
-
-## 📚 Learning Resources
-
-### Official Documentation
-
-- [Google Cloud Run Documentation](https://cloud.google.com/run/docs)
-- [Google Cloud Build Documentation](https://cloud.google.com/build/docs)
-- [Google Artifact Registry Documentation](https://cloud.google.com/artifact-registry/docs)
-- [Terraform Google Provider](https://registry.terraform.io/providers/hashicorp/google/latest/docs)
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
-
-### Recommended Learning Paths
-
-1. **Docker Basics**: Learn containerization fundamentals
-2. **Terraform Fundamentals**: Understand Infrastructure as Code
-3. **CI/CD Concepts**: Learn continuous integration and deployment
-4. **GCP Cloud Run**: Serverless container platform
-5. **DevOps Best Practices**: Security, monitoring, automation
-
-### Next Steps
-
-After completing this project, consider:
-
-- ✨ Add a Cloud SQL database
-- ✨ Implement Cloud Monitoring and alerting
-- ✨ Add Cloud Armor for DDoS protection
-- ✨ Set up custom domain with Cloud Load Balancing
-- ✨ Implement blue/green deployments
-- ✨ Add unit and integration tests
-- ✨ Use Workload Identity Federation instead of service account keys
-
-## 📝 License
-
-This project is for educational purposes. Feel free to use and modify as needed for learning.
-
-## 🤝 Contributing
-
-This is a learning project! Feel free to:
-- Report issues
-- Suggest improvements
-- Share your learnings
 
 ---
 
-**Happy Learning! 🚀**
+## 🚀 Complete Setup Guide
 
-If you found this helpful, please star the repository and share with others learning DevOps!
+### Step 1: Create GCP Project
+
+1. Go to: https://console.cloud.google.com/
+2. Click "Select a project" → "NEW PROJECT"
+3. Name it (e.g., "My First Project")
+4. Note your **Project ID** (e.g., `project-cde9aa72-04d5-4bd3-af5`)
+
+### Step 2: Enable Billing
+
+**⚠️ CRITICAL: Without billing, nothing will work!**
+
+1. Go to: https://console.cloud.google.com/billing
+2. Link your project to a billing account
+3. New users get $300 free credit
+
+### Step 3: Setup gcloud CLI
+
+```powershell
+# Windows PowerShell
+gcloud init
+
+# Login with your Google account
+# Select your project
+# Choose region: asia-east1-a
+
+# Verify setup
+gcloud config get-value project
+
+# Set PATH (if gcloud not found)
+$env:Path += ";C:\Users\$env:USERNAME\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin"
+```
+
+### Step 4: Create Service Account
+
+```powershell
+# Set your project ID
+$env:PROJECT_ID = "your-project-id"  # Replace with YOUR actual project ID
+
+# Create service account
+gcloud iam service-accounts create github-actions-sa --display-name="GitHub Actions Service Account" --project=$env:PROJECT_ID
+```
+
+### Step 5: Run Initial Setup Script
+
+**This step creates the service account and Workload Identity Federation.**
+
+```powershell
+# Edit the setup script first with your details
+notepad setup-initial.ps1
+
+# Update these variables:
+# $PROJECT_ID = "your-project-id"
+# $GITHUB_USERNAME = "your-github-username"
+# $GITHUB_REPO = "gcp-devops-demo"
+
+# Run the setup script
+.\setup-initial.ps1
+```
+
+This script will:
+- ✅ Create `github-actions-sa` service account
+- ✅ Create Workload Identity Federation pool and provider
+- ✅ Grant WIF access
+- ✅ Display the values for GitHub secrets
+
+**Note:** IAM permissions are NOT granted yet - Terraform will handle that in Step 7!
+
+### Step 6: Add GitHub Secrets
+
+The setup script from Step 5 displayed these values. Add them to GitHub:
+
+Go to: https://github.com/YOUR-USERNAME/gcp-devops-demo/settings/secrets/actions
+
+Click "New repository secret" for each:
+
+**Secret 1:**
+- Name: `GCP_PROJECT_ID`
+- Value: `your-project-id`
+
+**Secret 2:**
+- Name: `WIF_PROVIDER`
+- Value: `projects/YOUR-PROJECT-NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider`
+
+**Secret 3:**
+- Name: `WIF_SERVICE_ACCOUNT`
+- Value: `github-actions-sa@your-project-id.iam.gserviceaccount.com`
+
+### Step 7: Deploy Infrastructure with Terraform
+
+**This is where IAM permissions are automatically created!**
+
+```powershell
+cd terraform
+
+# Copy example file
+copy terraform.tfvars.example terraform.tfvars
+
+# Edit with your project ID
+notepad terraform.tfvars
+# Change: project_id = "your-project-id"
+
+# Authenticate Terraform
+gcloud auth application-default login
+
+# Deploy infrastructure AND grant IAM permissions automatically!
+terraform init
+terraform plan
+terraform apply
+# Type: yes
+```
+
+**What Terraform does:**
+- ✅ Creates Cloud Run service
+- ✅ Creates Artifact Registry repository
+- ✅ Enables required APIs
+- ✅ **Grants all IAM permissions automatically** (via `iam.tf`)
+- ✅ Follows **Principle of Least Privilege**
+
+No manual IAM configuration needed!
+
+### Step 8: Setup GitHub Repository
+
+1. **Create repository:** https://github.com/new
+   - Name: `gcp-devops-demo`
+   - **Don't** initialize with README
+
+2. **Push code:**
+```powershell
+cd ..  # Back to project root
+git init
+git remote add origin https://github.com/YOUR-USERNAME/gcp-devops-demo.git
+git add .
+git commit -m "Initial commit: GCP DevOps with Workload Identity Federation"
+git branch -M main
+git push -u origin main --force
+```
+
+### Step 9: Add GitHub Secrets
+
+Go to: https://github.com/YOUR-USERNAME/gcp-devops-demo/settings/secrets/actions
+
+Click "New repository secret" for each:
+
+**Secret 1:**
+- Name: `GCP_PROJECT_ID`
+- Value: `your-project-id`
+
+**Secret 2:**
+- Name: `WIF_PROVIDER`
+- Value: `projects/YOUR-PROJECT-NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider`
+
+**Secret 3:**
+- Name: `WIF_SERVICE_ACCOUNT`
+- Value: `github-actions-sa@your-project-id.iam.gserviceaccount.com`
+
+### Step 10: Watch Deployment
+
+1. Go to: https://github.com/YOUR-USERNAME/gcp-devops-demo/actions
+2. Click on "Deploy to Google Cloud Run"
+3. Watch the workflow (takes 5-10 minutes)
+4. Wait for green checkmark ✅
+
+### Step 11: Test Your Application
+
+```powershell
+# Get your service URL
+gcloud run services describe gcp-devops-demo --region=asia-east1 --format="value(status.url)"
+
+# Test endpoints
+curl https://your-service-url/
+curl https://your-service-url/health
+curl https://your-service-url/info
+```
+
+---
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+#### Permission Denied Errors
+
+**Problem:** Build fails with permission errors
+
+**Solution:** Make sure BOTH service accounts have all required roles (see Step 5)
+
+#### Workload Identity Federation Errors
+
+**Problem:** `invalid_target` error
+
+**Solution:** 
+1. Verify pool exists: `gcloud iam workload-identity-pools describe github-pool --location=global`
+2. Verify provider exists: `gcloud iam workload-identity-pools providers describe github-provider --location=global --workload-identity-pool=github-pool`
+3. Recreate if needed (see Step 6)
+
+#### gcloud Command Not Found (Windows)
+
+**Solution:**
+```powershell
+$env:Path += ";C:\Users\$env:USERNAME\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin"
+```
+
+Or use "Google Cloud SDK Shell" from Start Menu
+
+#### Build Fails at Docker Step
+
+**Problem:** Cloud Build can't push to Artifact Registry
+
+**Solution:** Add `Artifact Registry Writer` role to Cloud Build service account
+
+#### Cloud Run Deployment Fails
+
+**Problem:** Permission to deploy denied
+
+**Solution:** Add `Cloud Run Developer` role to Cloud Build service account
+
+---
+
+## 🧹 Cleanup
+
+To avoid charges, destroy all resources:
+
+```powershell
+# Destroy infrastructure
+cd terraform
+terraform destroy
+# Type: yes
+
+# Delete Workload Identity Pool (optional)
+gcloud iam workload-identity-pools delete github-pool --location=global
+
+# Delete service account (optional)
+gcloud iam service-accounts delete github-actions-sa@your-project-id.iam.gserviceaccount.com
+```
+
+---
+
+## 📊 Complete Permissions Summary (Least Privilege)
+
+**All permissions are automatically granted by Terraform via `terraform/iam.tf`**
+
+### github-actions-sa Service Account:
+1. Cloud Build Service Account (`roles/cloudbuild.builds.editor`) - Submit builds
+2. Cloud Run Developer (`roles/run.developer`) - Deploy services
+3. Service Account User (`roles/iam.serviceAccountUser`) - Impersonate service accounts
+4. Service Usage Consumer (`roles/serviceusage.serviceUsageConsumer`) - Use GCP APIs
+5. Storage Object User (`roles/storage.objectUser`) - Read/write Cloud Storage objects
+6. Artifact Registry Writer (`roles/artifactregistry.writer`) - Push Docker images
+
+### [PROJECT_NUMBER]-compute@developer.gserviceaccount.com (Cloud Build SA):
+1. Storage Object User (`roles/storage.objectUser`) - Upload build artifacts
+2. Logs Writer (`roles/logging.logWriter`) - Write build logs
+3. Artifact Registry Writer (`roles/artifactregistry.writer`) - Push Docker images
+4. Cloud Run Developer (`roles/run.developer`) - Deploy to Cloud Run
+5. Service Account User (`roles/iam.serviceAccountUser`) - Impersonate service accounts
+
+**Security Notes:**
+- ✅ Follows **Principle of Least Privilege**
+- ✅ No "Admin" roles (only Developer/Writer/User)
+- ✅ Can't delete buckets or repositories
+- ✅ Can't manage IAM policies
+- ✅ Limited blast radius if compromised
+
+**To customize permissions:** Edit `terraform/iam.tf` and run `terraform apply`
+
+---
+
+## 🎓 What You've Learned
+
+After completing this project, you've learned:
+- ✅ Infrastructure as Code with Terraform (including IAM!)
+- ✅ **Principle of Least Privilege** for security
+- ✅ Docker containerization
+- ✅ CI/CD with GitHub Actions
+- ✅ Workload Identity Federation (keyless authentication)
+- ✅ GCP IAM managed via Terraform
+- ✅ Cloud Run serverless deployment
+- ✅ Artifact Registry for container images
+- ✅ Cloud Build for automated builds
+- ✅ **Automated IAM management** (no manual clicking!)
+
+---
+
+## 💰 Cost Management
+
+**Expected costs for learning:** $0-5/month
+- Cloud Run scales to zero (no charges when idle)
+- Free tier: 2 million requests/month
+- Artifact Registry: ~$0.10/GB/month
+
+**To minimize costs:**
+- Run `terraform destroy` when done
+- Delete unused images from Artifact Registry
+- Set up billing alerts
+
+---
+
+## 📚 Additional Resources
+
+- [Google Cloud Run Documentation](https://cloud.google.com/run/docs)
+- [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation)
+- [Terraform Google Provider](https://registry.terraform.io/providers/hashicorp/google)
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+
+---
+
+**🎉 Congratulations!** You've built a production-ready CI/CD pipeline!
+
+**Project by:** GCP DevOps Learning  
+**Last Updated:** January 2026  
+**Version:** 2.0.0 (Updated with correct permissions)
