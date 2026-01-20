@@ -9,10 +9,15 @@ A complete hands-on learning project for Google Cloud Platform DevOps, featuring
 ## 📋 Table of Contents
 
 1. [Project Overview](#project-overview)
-2. [Prerequisites](#prerequisites)
-3. [Complete Setup Guide](#complete-setup-guide)
-4. [Troubleshooting](#troubleshooting)
-5. [Cleanup](#cleanup)
+2. [Architecture](#️-architecture)
+3. [Prerequisites](#prerequisites)
+4. [Complete Setup Guide](#complete-setup-guide)
+5. [Testing & Verification](#-testing--verification)
+6. [Monitoring & Debugging](#-monitoring--debugging)
+7. [Troubleshooting](#troubleshooting)
+8. [Cleanup](#cleanup)
+9. [Permissions Summary](#-complete-permissions-summary-least-privilege)
+10. [What You've Learned](#-what-youve-learned)
 
 ---
 
@@ -37,6 +42,94 @@ A simple Flask API with three endpoints:
 - `GET /` - Welcome message with timestamp
 - `GET /health` - Health check endpoint
 - `GET /info` - Application metadata
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     GitHub Repository                        │
+│  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌───────────┐ │
+│  │  Flask   │  │ Dockerfile│  │ Terraform│  │ CloudBuild│ │
+│  │   App    │  │           │  │   IaC    │  │   Config  │ │
+│  └──────────┘  └───────────┘  └──────────┘  └───────────┘ │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         │ git push (triggers pipeline)
+                         ▼
+              ┌──────────────────────┐
+              │   GitHub Actions     │
+              │  (Authenticate GCP)  │
+              └──────────┬───────────┘
+                         │
+                         │ Submit Build
+                         ▼
+              ┌──────────────────────┐
+              │    Cloud Build       │
+              │  1. Build Docker     │
+              │  2. Push to Registry │
+              │  3. Deploy to Run    │
+              └──────────┬───────────┘
+                         │
+          ┌──────────────┼──────────────┐
+          │              │               │
+          ▼              ▼               ▼
+  ┌──────────────┐ ┌─────────┐  ┌──────────────┐
+  │  Artifact    │ │  Cloud  │  │   Cloud Run  │
+  │  Registry    │ │  Build  │  │   Service    │
+  │  (Images)    │ │  (Logs) │  │ (Production) │
+  └──────────────┘ └─────────┘  └──────┬───────┘
+                                        │
+                                        │ HTTPS
+                                        ▼
+                                 ┌──────────────┐
+                                 │  Public API  │
+                                 │ (Your Users) │
+                                 └──────────────┘
+```
+
+### Project Structure
+
+```
+gcp-devops-demo/
+├── app/
+│   ├── main.py              # Flask application
+│   └── requirements.txt     # Python dependencies
+├── terraform/
+│   ├── main.tf             # Infrastructure resources
+│   ├── iam.tf              # IAM permissions (automated!)
+│   ├── variables.tf        # Terraform variables
+│   ├── outputs.tf          # Output values
+│   └── terraform.tfvars    # Your configuration
+├── .github/workflows/
+│   └── deploy.yaml         # CI/CD pipeline
+├── Dockerfile              # Container definition
+├── cloudbuild.yaml         # Build configuration
+└── README.md              # This file
+```
+
+### Deployment Process
+
+1. **Developer pushes code** to GitHub
+2. **GitHub Actions** authenticates using Workload Identity Federation
+3. **Cloud Build** executes `cloudbuild.yaml`:
+   - Builds Docker image from `Dockerfile`
+   - Pushes image to Artifact Registry
+   - Deploys to Cloud Run
+4. **Cloud Run** serves the application to users
+
+### Manual Deployment
+
+If you want to deploy without GitHub Actions:
+
+```bash
+# Submit build directly to Cloud Build
+gcloud builds submit \
+  --config=cloudbuild.yaml \
+  --substitutions=_REGION=asia-east1,_APP_NAME=gcp-devops-demo,SHORT_SHA=$(git rev-parse --short HEAD) \
+  --project=$PROJECT_ID
+```
 
 ---
 
@@ -326,6 +419,105 @@ Or use "Google Cloud SDK Shell" from Start Menu
 **Problem:** Permission to deploy denied
 
 **Solution:** Add `Cloud Run Developer` role to Cloud Build service account
+
+---
+
+## 🧪 Testing & Verification
+
+### Verify Deployment
+
+```bash
+# Get Cloud Run service URL
+gcloud run services describe gcp-devops-demo \
+  --region=asia-east1 \
+  --format="value(status.url)"
+
+# Test all endpoints
+curl https://your-service-url/
+curl https://your-service-url/health
+curl https://your-service-url/info
+```
+
+### Check Infrastructure
+
+```bash
+# List Cloud Run services
+gcloud run services list --region=asia-east1
+
+# List Artifact Registry repositories
+gcloud artifacts repositories list --location=asia-east1
+
+# Verify IAM permissions
+gcloud projects get-iam-policy $PROJECT_ID \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:serviceAccount:github-actions-sa@$PROJECT_ID.iam.gserviceaccount.com" \
+  --format="table(bindings.role)"
+```
+
+### Test CI/CD Pipeline
+
+```bash
+# Make a small change
+echo "# Test" >> test.txt
+
+# Commit and push
+git add test.txt
+git commit -m "Test: Trigger deployment"
+git push origin main
+
+# Watch deployment
+# Go to: https://github.com/YOUR-USERNAME/gcp-devops-demo/actions
+```
+
+---
+
+## 🔍 Monitoring & Debugging
+
+### View Cloud Build Logs
+
+```bash
+# List recent builds
+gcloud builds list --limit=10
+
+# View specific build logs
+gcloud builds log BUILD_ID
+
+# Or view in console
+# https://console.cloud.google.com/cloud-build/builds
+```
+
+### View Cloud Run Logs
+
+```bash
+# Stream logs
+gcloud run services logs read gcp-devops-demo \
+  --region=asia-east1 \
+  --limit=50
+
+# Or view in console
+# https://console.cloud.google.com/run
+```
+
+### Debug Common Issues
+
+**Build fails:**
+```bash
+# Check Cloud Build logs
+gcloud builds list --limit=1
+gcloud builds log $(gcloud builds list --limit=1 --format="value(id)")
+```
+
+**Deployment fails:**
+```bash
+# Check Cloud Run logs
+gcloud run services logs read gcp-devops-demo --region=asia-east1
+```
+
+**Permission errors:**
+```bash
+# Verify IAM roles
+gcloud projects get-iam-policy $PROJECT_ID
+```
 
 ---
 
